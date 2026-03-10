@@ -37,7 +37,7 @@ class SVM:
 
 if __name__ == "__main__":
     import os
-    
+    print("Modello utilizzato: SVM")
 
     # Percorsi dei file
     base_dir = os.path.dirname(os.path.abspath(__file__))

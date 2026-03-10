@@ -129,7 +129,7 @@ class SVM_Duale:
 
 if __name__ == "__main__":
     import os
-    
+    print("Modello utilizzato: SVM tramite SMO duale")
 
     # Percorsi dei file
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -142,27 +142,27 @@ if __name__ == "__main__":
     print(f"Test set:     {X_test.shape[0]} campioni, {X_test.shape[1]} feature")
     print(f"Dataset totale: {X_all.shape[0]} campioni")
 
-    # Addestramento
-    svm_duale = SVM_Duale(C=1.0, n_iters=1000, tol = 1e-1)
-    svm_duale.fit(X_train, y_train)
+    # # Addestramento
+    # svm_duale = SVM_Duale(C=1.0, n_iters=1000, tol = 1e-1)
+    # svm_duale.fit(X_train, y_train)
 
-    # Predizione e accuratezza
-    y_pred = svm_duale.predict(X_test)
-    accuracy = np.mean(y_pred == y_test)
-    print(f"Accuracy sul test set: {accuracy * 100:.2f}%")
+    # # Predizione e accuratezza
+    # y_pred = svm_duale.predict(X_test)
+    # accuracy = np.mean(y_pred == y_test)
+    # print(f"Accuracy sul test set: {accuracy * 100:.2f}%")
 
-    sv = (svm_duale.alpha > 1e-5) & (svm_duale.alpha < svm_duale.C - 1e-5)
-    print(f"Support vectors: {sv.sum()} su {X_train.shape[0]} campioni")
+    # sv = (svm_duale.alpha > 1e-5) & (svm_duale.alpha < svm_duale.C - 1e-5)
+    # print(f"Support vectors: {sv.sum()} su {X_train.shape[0]} campioni")
 
-    # accuracy su train set
-    y_pred_train = svm_duale.predict(X_train)
-    print(f"Accuracy train: {np.mean(y_pred_train == y_train) * 100:.2f}%")
+    # # accuracy su train set
+    # y_pred_train = svm_duale.predict(X_train)
+    # print(f"Accuracy train: {np.mean(y_pred_train == y_train) * 100:.2f}%")
 
 
-    # from sklearn.svm import LinearSVC
-    # from sklearn.metrics import accuracy_score
+    from sklearn.svm import LinearSVC
+    from sklearn.metrics import accuracy_score
 
-    # svm_sk = LinearSVC(C=1.0, max_iter=10000)
-    # svm_sk.fit(X_train, y_train)
-    # y_pred_sk = svm_sk.predict(X_test)
-    # print(f"sklearn accuracy: {accuracy_score(y_test, y_pred_sk) * 100:.2f}%")
+    svm_sk = LinearSVC(C=1.0, max_iter=10000, tol=1e-4, dual="auto")
+    svm_sk.fit(X_train, y_train)
+    y_pred_sk = svm_sk.predict(X_test)
+    print(f"sklearn accuracy: {accuracy_score(y_test, y_pred_sk) * 100:.2f}%")
