@@ -1,8 +1,15 @@
 from sklearn.datasets import load_svmlight_file
 import numpy as np
 
-def load_data(train_path, test_path):
-    """Carica i dataset in formato LIBSVM e restituisce train, test e il dataset completo."""
+
+def load_data(train_path, test_path, use_scaling=True):
+    """Carica i dataset in formato LIBSVM e restituisce train, test e il dataset completo.
+
+    Args:
+        train_path: percorso del file train in formato LIBSVM.
+        test_path: percorso del file test in formato LIBSVM.
+        use_scaling: se True applica StandardScaler fit su train e transform su test.
+    """
     from sklearn.datasets import load_svmlight_file
     from sklearn.preprocessing import StandardScaler
 
@@ -16,10 +23,11 @@ def load_data(train_path, test_path):
     X_train = X_train.toarray()
     X_test = X_test.toarray()
 
-    # Normalizzazione: fit solo su train, transform su entrambi
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
+    if use_scaling:
+        # Normalizzazione: fit solo su train, transform su entrambi
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
 
     # Dataset completo (train + test) per la visualizzazione
     X_all = np.vstack([X_train, X_test])

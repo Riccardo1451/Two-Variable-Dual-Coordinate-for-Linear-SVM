@@ -4,69 +4,126 @@ from utils import load_data
 from tqdm import tqdm
 import time
 
+import numpy as np
+import time
+from tqdm import tqdm
+
 class SVM_DCD:
-    def __init__(self, C=1.0, n_iters=1000, tol = 1e-6):
+    def __init__(self, C=1.0, n_iters=1000, tol=1e-6):
         self.C = C
         self.n_iters = n_iters
         self.tol = tol
 
         self.alpha = None
         self.w = None
-
         self.fobj_history = []
+        self.fobj_history_cd = []
 
     def fit(self, X, y):
-        X = np.hstack([X, np.ones((X.shape[0], 1))]) #Aggiungiamo una colonna di 1 per il bias
-
-        n_samples, n_features = X.shape
+        # Bias embedding (come nel paper: no vincolo duale)
+        X = np.hstack([X, np.ones((X.shape[0], 1))])
 
         y = np.where(y <= 0, -1, 1).astype(float)
+        n_samples, n_features = X.shape
 
         self.alpha = np.zeros(n_samples)
         w = np.zeros(n_features)
+
+        # L2-SVM: termine diagonale
+        Dii = 1.0 / (2.0 * self.C)
+        Q_diag = np.sum(X**2, axis=1) + Dii
+
         self.fobj_history = []
-
-        Q_diag = np.sum(X**2, axis=1) #Matrice diagonale denominatore per l'aggiornamento
-
+        self.fobj_history_cd = []
+        total_step = 0
+        total_cd_step = 0
         start = time.time()
 
+        LOG_INTERVAL = max(1, n_samples // 10)
+
         for epoch in tqdm(range(self.n_iters), desc="Epoche", unit="epoch"):
-            n_updates = 0
+            M = -np.inf
+            m = np.inf
 
-            for i in np.random.permutation(n_samples):
-                #Calcolo del gradiente
-                G = y[i] * np.dot(w, X[i]) - 1
+            perm = np.random.permutation(n_samples)
 
-                #Aggiorniamo la variabile duale alpha_i
+            for i in perm:
+                total_cd_step += 1
 
+                # Gradiente
+                G = y[i] * np.dot(w, X[i]) - 1 + Dii * self.alpha[i]
+
+                # Gradiente proiettato (bound solo inferiore: 0)
+                if self.alpha[i] == 0:
+                    PG = min(0.0, G)
+                else:
+                    PG = G
+
+                M = max(M, PG)
+                m = min(m, PG)
+
+                # Skip se ottimo
                 if self.alpha[i] == 0 and G >= 0:
                     continue
-                if self.alpha[i] == self.C and G <= 0:
-                    continue
 
-                alpha_new = self.alpha[i] - G / Q_diag[i]
-                alpha_new = float(np.clip(alpha_new, 0, self.C))
+                # Update closed-form
+                alpha_old = self.alpha[i]
+                alpha_new = alpha_old - G / Q_diag[i]
+                alpha_new = max(0.0, alpha_new)  # bound inferiore
 
-                delta = alpha_new - self.alpha[i] #Aggiornamento della variabile duale di un fattore d 
-                if abs(delta) > 1e-12: #Se l'aggiornamento è significativo, aggiorniamo i pesi w
-                    w += delta * y[i] * X[i] #Aggiornamento incrementale dei pesi w
-                    n_updates += 1
-                self.alpha[i] = alpha_new
-            
-            #Calcoliamo il valore della funzione obiettivo f(α) = (1/2)||w||² - Σα_i
-            fobj = 0.5 * np.dot(w,w) - self.alpha.sum()
-            self.fobj_history.append((time.time() - start,fobj))
+                delta = alpha_new - alpha_old
 
-            if n_updates == 0 :
-                print(f"Convergenza raggiunta all'epoca {epoch}")
+                # Update incrementale di w
+                if abs(delta) > 1e-12:
+                    w += delta * y[i] * X[i]
+                    self.alpha[i] = alpha_new
+
+                total_step += 1
+
+                # Logging funzione obiettivo
+                if total_step % LOG_INTERVAL == 0:
+                    fobj = (
+                        0.5 * np.dot(w, w)
+                        - np.sum(self.alpha)
+                        + 0.5 * Dii * np.dot(self.alpha, self.alpha)
+                    )
+                    self.fobj_history.append(
+                        (time.time() - start, total_step, fobj)
+                    )
+
+                # Logging con asse x basato sui passi CD tentati.
+                if total_cd_step % LOG_INTERVAL == 0:
+                    fobj = (
+                        0.5 * np.dot(w, w)
+                        - np.sum(self.alpha)
+                        + 0.5 * Dii * np.dot(self.alpha, self.alpha)
+                    )
+                    self.fobj_history_cd.append(
+                        (time.time() - start, total_cd_step, fobj)
+                    )
+
+            # Criterio di stop teorico (paper)
+            if M - m < self.tol:
+                print(f"\nConvergenza raggiunta all'epoca {epoch}")
                 break
+
+        final_obj = (
+            0.5 * np.dot(w, w)
+            - np.sum(self.alpha)
+            + 0.5 * Dii * np.dot(self.alpha, self.alpha)
+        )
+        elapsed = time.time() - start
+        if not self.fobj_history or self.fobj_history[-1][1] != total_step:
+            self.fobj_history.append((elapsed, total_step, final_obj))
+        if not self.fobj_history_cd or self.fobj_history_cd[-1][1] != total_cd_step:
+            self.fobj_history_cd.append((elapsed, total_cd_step, final_obj))
 
         self.w = w
 
     def predict(self, X):
         X = np.hstack([X, np.ones((X.shape[0], 1))])
-        return np.sign(X @ self.w)     
-
+        return np.sign(X @ self.w)
+    
 if __name__ == "__main__":
     import os
     print("Modello utilizzato: SVM con Coordinate Descent Duale")
