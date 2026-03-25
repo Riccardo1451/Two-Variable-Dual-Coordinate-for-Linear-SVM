@@ -17,14 +17,14 @@ datasets = {
     "a9a": ("a9a.txt", "a9a_t.txt"),
 }
 
-C_values = [1]
+C_values = [8192, 1]
 TOL = 1e-1
 SEED = 42
 
 # Impostazioni per confronto piu' vicino al paper.
 USE_STANDARD_SCALING = False
-REFERENCE_ITERS = 3000
-REFERENCE_TOL = 1e-4
+REFERENCE_ITERS = 4000
+REFERENCE_TOL = 1e-2
 
 # Scelta asse step:
 # - "cd": usa il numero di passi CD tentati (consigliato per confronto con il paper)
@@ -129,7 +129,7 @@ for dataset_name, (train_file, test_file) in datasets.items():
         # =========================
         print("Addestramento SVM DCD...")
         np.random.seed(SEED)
-        dcd = SVM_DCD(C=C, n_iters=1000, tol=TOL)
+        dcd = SVM_DCD(C=C, n_iters=3000, tol=TOL)
         dcd.fit(X_train, y_train)
 
         y_pred_dcd = dcd.predict(X_test)
@@ -141,7 +141,7 @@ for dataset_name, (train_file, test_file) in datasets.items():
         # =========================
         print("Addestramento SVM Two-CD...")
         np.random.seed(SEED)
-        two_cd = SVM_2CD(C=C, n_iters=1000, tol=TOL)
+        two_cd = SVM_2CD(C=C, n_iters=2000, tol=TOL, solve_method="constrained")
         two_cd.fit(X_train, y_train)
 
         y_pred_2cd = two_cd.predict(X_test)
@@ -152,7 +152,7 @@ for dataset_name, (train_file, test_file) in datasets.items():
         # sklearn (solo controllo)
         # =========================
         print("Addestramento SVM sklearn...")
-        svm_sk = LinearSVC(C=C, max_iter=1000, tol=TOL, dual=True, loss="squared_hinge", fit_intercept=True)
+        svm_sk = LinearSVC(C=C, max_iter=5000, tol=TOL, dual=True, loss="squared_hinge", fit_intercept=False)
         svm_sk.fit(X_train, y_train)
 
         y_pred_sk = svm_sk.predict(X_test)

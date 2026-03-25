@@ -4,17 +4,27 @@ from tqdm import tqdm
 import time
 
 class SVM_2CD:
-    def __init__(self, C=1.0, n_iters=1000, tol=1e-6):
+    def __init__(self, C=1.0, n_iters=1000, tol=1e-6, solve_method="constrained"):
+        """
+        solve_method: 
+            - "naive": soluzione libera con proiezione semplice (può divergere)
+            - "constrained": soluzione vincolata robusta (consigliato)
+        """
         self.C = C
         self.n_iters = n_iters
         self.tol = tol
+        self.solve_method = solve_method
 
         self.alpha = None
         self.w = None
         self.fobj_history = []
         self.fobj_history_cd = []
 
-    def _solve_2d_subproblem(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
+    def _solve_2d_subproblem_naive(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
+        """
+        Soluzione NAIVE: sistema libero con proiezione semplice.
+        PROBLEMATICO: proiezione scorretta quando la soluzione esce dai vincoli.
+        """
         delta = Qii * Qjj - Qij ** 2
 
         # Se il sistema 2x2 e' mal condizionato, usa due update 1D separati.
@@ -39,11 +49,74 @@ class SVM_2CD:
         ai_new = ai + di
         aj_new = aj + dj
 
-        # proiezione
+        # proiezione semplice (scorretta se viola i vincoli in modo non simmetrico)
         ai_new = max(0.0, ai_new)
         aj_new = max(0.0, aj_new)
 
         return ai_new - ai, aj_new - aj
+
+    def _solve_2d_subproblem_constrained(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
+        """
+        Solve the 2D quadratic subproblem in delta-space with lower bounds:
+            di >= -ai, dj >= -aj.
+        We evaluate feasible KKT candidates (free point, two edges, corner)
+        and pick the one with the lowest local objective.
+        """
+
+        def local_obj(di, dj):
+            return (
+                Gi * di
+                + Gj * dj
+                + 0.5 * (Qii * di * di + 2.0 * Qij * di * dj + Qjj * dj * dj)
+            )
+
+        # Start from "no move" candidate to avoid accidental ascent.
+        best_di, best_dj = 0.0, 0.0
+        best_obj = 0.0
+
+        delta = Qii * Qjj - Qij ** 2
+
+        # Candidate 1: unconstrained minimizer (if numerically stable and feasible)
+        if delta > 1e-12:
+            di_free = (-Qjj * Gi + Qij * Gj) / delta
+            dj_free = (-Qii * Gj + Qij * Gi) / delta
+            if di_free >= -ai and dj_free >= -aj:
+                obj_free = local_obj(di_free, dj_free)
+                if obj_free < best_obj:
+                    best_di, best_dj = di_free, dj_free
+                    best_obj = obj_free
+
+        # Candidate 2: edge di = -ai, optimize dj with bound dj >= -aj
+        di_edge = -ai
+        dj_star = -(Gj + Qij * di_edge) / Qjj
+        dj_edge = max(dj_star, -aj)
+        obj_edge_i = local_obj(di_edge, dj_edge)
+        if obj_edge_i < best_obj:
+            best_di, best_dj = di_edge, dj_edge
+            best_obj = obj_edge_i
+
+        # Candidate 3: edge dj = -aj, optimize di with bound di >= -ai
+        dj_edge = -aj
+        di_star = -(Gi + Qij * dj_edge) / Qii
+        di_edge = max(di_star, -ai)
+        obj_edge_j = local_obj(di_edge, dj_edge)
+        if obj_edge_j < best_obj:
+            best_di, best_dj = di_edge, dj_edge
+            best_obj = obj_edge_j
+
+        # Candidate 4: corner di = -ai, dj = -aj
+        obj_corner = local_obj(-ai, -aj)
+        if obj_corner < best_obj:
+            best_di, best_dj = -ai, -aj
+
+        return best_di, best_dj
+
+    def _solve_2d_subproblem(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
+        """Wrapper che seleziona il metodo di risoluzione."""
+        if self.solve_method == "constrained":
+            return self._solve_2d_subproblem_constrained(ai, aj, Gi, Gj, Qii, Qjj, Qij)
+        else:  # "naive" o altro
+            return self._solve_2d_subproblem_naive(ai, aj, Gi, Gj, Qii, Qjj, Qij)
 
     def fit(self, X, y):
         # Bias embedding (no vincolo duale)
@@ -152,9 +225,10 @@ class SVM_2CD:
 
     def predict(self, X):
         X = np.hstack([X, np.ones((X.shape[0], 1))])
-        return np.sign(X @ self.w)
-    
-    
+        scores = X @ self.w
+        return np.where(scores >= 0, 1, -1)
+
+
 if __name__ == "__main__":
     import os
     from sklearn.svm import LinearSVC
@@ -167,7 +241,7 @@ if __name__ == "__main__":
     test_path = os.path.join(base_dir, "dataset", "a9a_t.txt")
 
     # Caricamento dati
-    X_train, y_train, X_test, y_test, X_all, y_all = load_data(train_path, test_path)
+    X_train, y_train, X_test, y_test, X_all, y_all = load_data(train_path, test_path, use_scaling=False)
     print(f"Train set:    {X_train.shape[0]} campioni, {X_train.shape[1]} feature")
     print(f"Test set:     {X_test.shape[0]} campioni, {X_test.shape[1]} feature")
     print(f"Dataset totale: {X_all.shape[0]} campioni")
@@ -188,7 +262,7 @@ if __name__ == "__main__":
     # y_pred_train = svm_duale.predict(X_train)
     # print(f"Accuracy train: {np.mean(y_pred_train == y_train) * 100:.2f}%")
     print("Addestramento SVM sklearn...")
-    svm_sk = LinearSVC(C=8192, max_iter=1000, tol=1e-1, dual=True, loss="squared_hinge", fit_intercept=True)
+    svm_sk = LinearSVC(C=8192, max_iter=100000, tol=1e-1, dual=True, loss="squared_hinge", fit_intercept=False)
     svm_sk.fit(X_train, y_train)
 
     y_pred_sk = svm_sk.predict(X_test)

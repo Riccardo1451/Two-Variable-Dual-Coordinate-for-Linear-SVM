@@ -122,7 +122,8 @@ class SVM_DCD:
 
     def predict(self, X):
         X = np.hstack([X, np.ones((X.shape[0], 1))])
-        return np.sign(X @ self.w)
+        scores = X @ self.w
+        return np.where(scores >= 0, 1, -1)
     
 if __name__ == "__main__":
     import os
