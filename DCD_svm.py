@@ -124,34 +124,3 @@ class SVM_DCD:
         X = np.hstack([X, np.ones((X.shape[0], 1))])
         scores = X @ self.w
         return np.where(scores >= 0, 1, -1)
-    
-if __name__ == "__main__":
-    import os
-    print("Modello utilizzato: SVM con Coordinate Descent Duale")
-
-    # Percorsi dei file
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    train_path = os.path.join(base_dir, "dataset", "a9a.txt")
-    test_path = os.path.join(base_dir, "dataset", "a9a_t.txt")
-
-    # Caricamento dati
-    X_train, y_train, X_test, y_test, X_all, y_all = load_data(train_path, test_path)
-    print(f"Train set:    {X_train.shape[0]} campioni, {X_train.shape[1]} feature")
-    print(f"Test set:     {X_test.shape[0]} campioni, {X_test.shape[1]} feature")
-    print(f"Dataset totale: {X_all.shape[0]} campioni")
-
-    # Addestramento
-    svm_duale = SVM_DCD(C=8.192, n_iters=1000, tol = 1e-4)
-    svm_duale.fit(X_train, y_train)
-
-    # Predizione e accuratezza
-    y_pred = svm_duale.predict(X_test)
-    accuracy = np.mean(y_pred == y_test)
-    print(f"Accuracy sul test set: {accuracy * 100:.2f}%")
-
-    sv = (svm_duale.alpha > 1e-5) & (svm_duale.alpha < svm_duale.C - 1e-5)
-    print(f"Support vectors: {sv.sum()} su {X_train.shape[0]} campioni")
-
-    # accuracy su train set
-    y_pred_train = svm_duale.predict(X_train)
-    print(f"Accuracy train: {np.mean(y_pred_train == y_train) * 100:.2f}%")

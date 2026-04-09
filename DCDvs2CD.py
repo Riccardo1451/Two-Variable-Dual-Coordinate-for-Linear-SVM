@@ -14,10 +14,12 @@ from sklearn.metrics import accuracy_score
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
 datasets = {
-    "a9a": ("a9a.txt", "a9a_t.txt"),
+    #"a9a": ("a9a.txt", "a9a_t.txt"),
+    "ijcnn": ("ijcnn1", "ijcnn1.t"),
+    #'w8a': ("w8a.txt", "w8a_t.txt"),
 }
 
-C_values = [8192, 1]
+C_values = [8192, 1, 0.1]
 TOL = 1e-1
 SEED = 42
 
@@ -90,7 +92,7 @@ fstar_cache = load_fstar_cache(FSTAR_CACHE_PATH)
 
 for dataset_name, (train_file, test_file) in datasets.items():
     train_path = os.path.join(base_dir, "dataset", train_file)
-    test_path = os.path.join(base_dir, "dataset", test_file)
+    test_path = os.path.join(base_dir, "dataset", test_file) if test_file else None
 
     X_train, y_train, X_test, y_test, _, _ = load_data(
         train_path,
@@ -99,7 +101,10 @@ for dataset_name, (train_file, test_file) in datasets.items():
     )
 
     print(f"\nDataset: {dataset_name}")
-    print(f"Train: {X_train.shape}, Test: {X_test.shape}")
+    if X_test is not None:
+        print(f"Train: {X_train.shape}, Test: {X_test.shape}")
+    else:
+        print(f"Train: {X_train.shape}, Test: non disponibile")
 
     for C in C_values:
         print(f"\nC = {C}")
@@ -132,9 +137,12 @@ for dataset_name, (train_file, test_file) in datasets.items():
         dcd = SVM_DCD(C=C, n_iters=3000, tol=TOL)
         dcd.fit(X_train, y_train)
 
-        y_pred_dcd = dcd.predict(X_test)
-        acc_dcd = accuracy_score(y_test, y_pred_dcd)
-        print(f"DCD Accuracy: {acc_dcd * 100:.2f}%")
+        if X_test is not None:
+            y_pred_dcd = dcd.predict(X_test)
+            acc_dcd = accuracy_score(y_test, y_pred_dcd)
+            print(f"DCD Accuracy: {acc_dcd * 100:.2f}%")
+        else:
+            print("DCD Accuracy: test set non disponibile")
 
         # =========================
         # 2-CD
@@ -144,9 +152,12 @@ for dataset_name, (train_file, test_file) in datasets.items():
         two_cd = SVM_2CD(C=C, n_iters=2000, tol=TOL, solve_method="constrained")
         two_cd.fit(X_train, y_train)
 
-        y_pred_2cd = two_cd.predict(X_test)
-        acc_2cd = accuracy_score(y_test, y_pred_2cd)
-        print(f"2-CD Accuracy: {acc_2cd * 100:.2f}%")
+        if X_test is not None:
+            y_pred_2cd = two_cd.predict(X_test)
+            acc_2cd = accuracy_score(y_test, y_pred_2cd)
+            print(f"2-CD Accuracy: {acc_2cd * 100:.2f}%")
+        else:
+            print("2-CD Accuracy: test set non disponibile")
 
         # =========================
         # sklearn (solo controllo)
@@ -155,9 +166,12 @@ for dataset_name, (train_file, test_file) in datasets.items():
         svm_sk = LinearSVC(C=C, max_iter=5000, tol=TOL, dual=True, loss="squared_hinge", fit_intercept=False)
         svm_sk.fit(X_train, y_train)
 
-        y_pred_sk = svm_sk.predict(X_test)
-        acc_sk = accuracy_score(y_test, y_pred_sk)
-        print(f"sklearn Accuracy: {acc_sk * 100:.2f}%")
+        if X_test is not None:
+            y_pred_sk = svm_sk.predict(X_test)
+            acc_sk = accuracy_score(y_test, y_pred_sk)
+            print(f"sklearn Accuracy: {acc_sk * 100:.2f}%")
+        else:
+            print("sklearn Accuracy: test set non disponibile")
 
         # =========================
         # ESTRAZIONE DATI
@@ -192,22 +206,22 @@ for dataset_name, (train_file, test_file) in datasets.items():
         ax1.semilogy(steps_2cd, rel_2cd, label="TwoVariable-DCD", linestyle="-")
 
         if STEP_AXIS_MODE == "cd":
-            ax1.set_xlabel("numero di passi CD tentati")
+            ax1.set_xlabel("number of CD steps attempted")
         else:
-            ax1.set_xlabel("numero di aggiornamenti effettivi (normalizzati)")
-        ax1.set_ylabel("funzione obiettivo relativa")
-        ax1.set_title("Convergenza rispetto ai passi")
-        ax1.legend(title="Metodo")
+            ax1.set_xlabel("number of effective variable updates")
+        ax1.set_ylabel("relative objective gap")
+        ax1.set_title("Convergence vs CD steps")
+        ax1.legend(title="Method")
         ax1.grid(True, which="both", alpha=0.3)
 
         # ---- vs tempo ----
         ax2.semilogy(times_dcd, rel_dcd, label="OneVariableDCD", linestyle="--")
         ax2.semilogy(times_2cd, rel_2cd, label="TwoVariable-DCD", linestyle="-")
 
-        ax2.set_xlabel("tempo di esecuzione (s)")
-        ax2.set_ylabel("funzione obiettivo relativa")
-        ax2.set_title("Convergenza rispetto al tempo")
-        ax2.legend(title="Metodo")
+        ax2.set_xlabel("execution time (s)")
+        ax2.set_ylabel("relative objective gap")
+        ax2.set_title("Convergence vs Time")
+        ax2.legend(title="Method")
         ax2.grid(True, which="both", alpha=0.3)
 
         plt.tight_layout(rect=[0, 0, 1, 0.94])
