@@ -26,16 +26,27 @@ The standard approach to solve this is **Dual Coordinate Descent (DCD)**: at eac
 
 ```
 .
+├── solvers/
+│   ├── DCD_svm.py      # L2-SVM solver: one-variable DCD
+│   └── twoCD_svm.py    # L2-SVM solver: two-variable CD (Chiu et al. 2020)
+│
 ├── basic_svms/
 │   ├── svm.py          # Primal SVM via SGD (educational baseline)
 │   └── dual_svm.py     # Dual SVM via SMO (with bias, equality constraint)
 │
-├── DCD_svm.py          # L2-SVM solver: one-variable DCD
-├── twoCD_svm.py        # L2-SVM solver: two-variable CD (Chiu et al. 2020)
 ├── DCDvs2CD.py         # Benchmark script: runs both solvers and plots results
 ├── utils.py            # Data loading for LIBSVM format datasets
-└── results/            # Output plots (convergence curves)
+├── docs/
+│   └── Report.pdf      # Project report
+└── results/            # Output plots and f* cache
 ```
+
+### `solvers/`
+
+The two main solver implementations from the paper:
+
+- **`DCD_svm.py`** — One-variable DCD (`SVM_DCD`)
+- **`twoCD_svm.py`** — Two-variable CD (`SVM_2CD`, Chiu et al. 2020)
 
 ### `basic_svms/`
 
@@ -44,7 +55,7 @@ Exploratory implementations to understand SVM from first principles:
 - **`svm.py`** — Primal SVM trained with subgradient SGD. Explicit weight vector `w` and bias `b`. Useful to understand the primal hinge-loss formulation.
 - **`dual_svm.py`** — Dual SVM solved with SMO. Here the bias `b` is kept explicit, which introduces the equality constraint $\sum y_i \alpha_i = 0$ in the dual, requiring pairs of variables to always be updated together.
 
-### `DCD_svm.py` — One-Variable DCD
+### `solvers/DCD_svm.py` — One-Variable DCD
 
 Implements `SVM_DCD`. At each step, one dual variable $\alpha_i$ is selected at random, its gradient is computed, and it is updated with a closed-form projected step:
 
@@ -52,7 +63,7 @@ $$\alpha_i \leftarrow \max\left(0,\ \alpha_i - \frac{G_i}{Q_{ii}}\right)$$
 
 The primal weight `w` is maintained incrementally. Convergence is checked via the projected gradient gap $M - m < \varepsilon$.
 
-### `twoCD_svm.py` — Two-Variable CD
+### `solvers/twoCD_svm.py` — Two-Variable CD
 
 Implements `SVM_2CD`. At each step, a random pair $(i, j)$ is selected and the 2×2 quadratic subproblem
 
@@ -60,7 +71,7 @@ $$\min_{d_i, d_j}\ G_i d_i + G_j d_j + \frac{1}{2}\begin{pmatrix}d_i \\ d_j\end{
 
 subject to $d_i \geq -\alpha_i,\ d_j \geq -\alpha_j$, is solved exactly. The solver evaluates four KKT candidates (unconstrained minimizer, two boundary edges, corner) and picks the one with the lowest objective value. This is the `constrained` mode, which is numerically robust. A `naive` mode (simple clipping) is also available for comparison.
 
-### `DCDvs2CD.py` — Benchmark
+### `DCDvs2CD.py` — Benchmark Script
 
 Runs both solvers on one or more datasets across multiple values of `C`, then plots:
 

@@ -4,8 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from utils import load_data
-from DCD_svm import SVM_DCD
-from twoCD_svm import SVM_2CD
+from solvers.DCD_svm import SVM_DCD
+from solvers.twoCD_svm import SVM_2CD
 
 from sklearn.svm import LinearSVC
 from sklearn.metrics import accuracy_score
