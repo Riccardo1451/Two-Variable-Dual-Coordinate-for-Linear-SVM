@@ -20,40 +20,57 @@ class SVM_2CD:
         self.fobj_history = []
         self.fobj_history_cd = []
 
-    def _solve_2d_subproblem_naive(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
-        """
-        Soluzione NAIVE: sistema libero con proiezione semplice.
-        PROBLEMATICO: proiezione scorretta quando la soluzione esce dai vincoli.
-        """
-        delta = Qii * Qjj - Qij ** 2
+    def _solve_2d_subproblem(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
+    """
+    Risolve il sottoproblema 2D seguendo Algorithm II di Chiu et al. (2021).
+    Usa il check di ottimalità (Teoremi II.1, II.2, II.3) invece di 
+    confrontare valori obiettivo sui bordi.
+    
+    Per L2-SVM: upper bound = inf, quindi box = [0, inf) x [0, inf)
+    """
+    delta = Qii * Qjj - Qij ** 2
 
-        # Se il sistema 2x2 e' mal condizionato, usa due update 1D separati.
-        if delta <= 1e-8:
-            di = 0.0
-            dj = 0.0
+    # Caso degenere: Hessiana semidefinita → fallback a due update 1D
+    if delta <= 1e-10:
+        di, dj = 0.0, 0.0
+        if not (ai == 0 and Gi >= 0):
+            di = max(0.0, ai - Gi / Qii) - ai
+        if not (aj == 0 and Gj >= 0):
+            dj = max(0.0, aj - Gj / Qjj) - aj
+        return di, dj
 
-            if not (ai == 0 and Gi >= 0):
-                ai_new = max(0.0, ai - Gi / Qii)
-                di = ai_new - ai
+    # Step 1: soluzione libera (senza vincoli)
+    ai_free = ai + (-Qjj * Gi + Qij * Gj) / delta
+    aj_free = aj + (-Qii * Gj + Qij * Gi) / delta
 
-            if not (aj == 0 and Gj >= 0):
-                aj_new = max(0.0, aj - Gj / Qjj)
-                dj = aj_new - aj
+    # Step 2: se la soluzione libera è già nel box, abbiamo finito
+    if ai_free >= 0 and aj_free >= 0:
+        return ai_free - ai, aj_free - aj
 
-            return di, dj
+    # Step 3: proiezione sul box [0, inf) x [0, inf)
+    ai_proj = max(0.0, ai_free)
+    aj_proj = max(0.0, aj_free)
 
-        # Soluzione libera del sottoproblema 2D.
-        di = (-Qjj * Gi + Qij * Gj) / delta
-        dj = (-Qii * Gj + Qij * Gi) / delta
+    # Step 4: check condizione di ottimalità su ai_proj (Teorema II.1 + II.2)
+    # Se ai_proj è sul bound inferiore (= 0), controlla il gradiente
+    use_j = True
+    if ai_proj <= 0:
+        grad_check = Qii * (ai_proj - ai) + Qij * (aj_proj - aj) + Gi
+        if grad_check >= 0:
+            # Ottimalità su ai soddisfatta → fissa ai, ottimizza aj in 1D
+            use_j = False
 
-        ai_new = ai + di
-        aj_new = aj + dj
+    if not use_j:
+        # Fissa ai_bar = ai_proj = 0, ottimizza aj in 1D
+        ai_bar = ai_proj
+        aj_bar = max(0.0, aj - (Qij * (ai_bar - ai) + Gj) / Qjj)
+    else:
+        # Per Teorema II.3: ottimalità su aj soddisfatta
+        # Fissa aj_bar = aj_proj, ottimizza ai in 1D
+        aj_bar = aj_proj
+        ai_bar = max(0.0, ai - (Qij * (aj_bar - aj) + Gi) / Qii)
 
-        # proiezione semplice (scorretta se viola i vincoli in modo non simmetrico)
-        ai_new = max(0.0, ai_new)
-        aj_new = max(0.0, aj_new)
-
-        return ai_new - ai, aj_new - aj
+    return ai_bar - ai, aj_bar - aj
 
     def _solve_2d_subproblem_constrained(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
         """
@@ -116,7 +133,7 @@ class SVM_2CD:
         if self.solve_method == "constrained":
             return self._solve_2d_subproblem_constrained(ai, aj, Gi, Gj, Qii, Qjj, Qij)
         else:  # "naive" o altro
-            return self._solve_2d_subproblem_naive(ai, aj, Gi, Gj, Qii, Qjj, Qij)
+            return self._solve_2d_subproblem(ai, aj, Gi, Gj, Qii, Qjj, Qij)
 
     def fit(self, X, y):
         # Bias embedding (no vincolo duale)
@@ -205,7 +222,7 @@ class SVM_2CD:
                     )
                     
 
-            # criterio di stop IDENTICO al 1-CD
+            # Stopping Criterion 
             if M - m < self.tol:
                 print(f"\nConvergenza raggiunta all'epoca {epoch}")
                 break

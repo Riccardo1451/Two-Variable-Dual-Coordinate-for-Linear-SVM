@@ -20,7 +20,7 @@ class SVM_DCD:
         self.fobj_history_cd = []
 
     def fit(self, X, y):
-        # Bias embedding (come nel paper: no vincolo duale)
+        # Bias embedding so the b term is already in the x vector
         X = np.hstack([X, np.ones((X.shape[0], 1))])
 
         y = np.where(y <= 0, -1, 1).astype(float)
@@ -29,7 +29,7 @@ class SVM_DCD:
         self.alpha = np.zeros(n_samples)
         w = np.zeros(n_features)
 
-        # L2-SVM: termine diagonale
+        # we are going to use a L2-loss so we need to declare the diagonal term Dii
         Dii = 1.0 / (2.0 * self.C)
         Q_diag = np.sum(X**2, axis=1) + Dii
 
@@ -39,9 +39,10 @@ class SVM_DCD:
         total_cd_step = 0
         start = time.time()
 
-        LOG_INTERVAL = max(1, n_samples // 10)
+        LOG_INTERVAL = max(1, n_samples // 10) #for time calc
 
-        for epoch in tqdm(range(self.n_iters), desc="Epoche", unit="epoch"):
+        for epoch in tqdm(range(self.n_iters), desc="Epochs", unit="epoch"):
+            #Criterion parameters
             M = -np.inf
             m = np.inf
 
@@ -50,10 +51,10 @@ class SVM_DCD:
             for i in perm:
                 total_cd_step += 1
 
-                # Gradiente
+                # Gradient calc
                 G = y[i] * np.dot(w, X[i]) - 1 + Dii * self.alpha[i]
 
-                # Gradiente proiettato (bound solo inferiore: 0)
+                # Projected Gradient with inf bound on 0
                 if self.alpha[i] == 0:
                     PG = min(0.0, G)
                 else:
@@ -62,25 +63,25 @@ class SVM_DCD:
                 M = max(M, PG)
                 m = min(m, PG)
 
-                # Skip se ottimo
+                # Skip if optimality
                 if self.alpha[i] == 0 and G >= 0:
                     continue
 
                 # Update closed-form
                 alpha_old = self.alpha[i]
                 alpha_new = alpha_old - G / Q_diag[i]
-                alpha_new = max(0.0, alpha_new)  # bound inferiore
+                alpha_new = max(0.0, alpha_new)  #Clip on inferior bound
 
                 delta = alpha_new - alpha_old
 
-                # Update incrementale di w
+                # Incremental update of w
                 if abs(delta) > 1e-12:
                     w += delta * y[i] * X[i]
                     self.alpha[i] = alpha_new
 
                 total_step += 1
 
-                # Logging funzione obiettivo
+                # Logging obj func
                 if total_step % LOG_INTERVAL == 0:
                     fobj = (
                         0.5 * np.dot(w, w)
@@ -91,7 +92,7 @@ class SVM_DCD:
                         (time.time() - start, total_step, fobj)
                     )
 
-                # Logging con asse x basato sui passi CD tentati.
+                # Logging based on CD step tried
                 if total_cd_step % LOG_INTERVAL == 0:
                     fobj = (
                         0.5 * np.dot(w, w)
@@ -102,11 +103,11 @@ class SVM_DCD:
                         (time.time() - start, total_cd_step, fobj)
                     )
 
-            # Criterio di stop teorico (paper)
+            # Stopping Criterion definition
             if M - m < self.tol:
-                print(f"\nConvergenza raggiunta all'epoca {epoch}")
+                print(f"\nConvergence reached at epoch {epoch}")
                 break
-
+        #Final obj to comparison with other methods
         final_obj = (
             0.5 * np.dot(w, w)
             - np.sum(self.alpha)
