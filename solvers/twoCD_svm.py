@@ -4,16 +4,10 @@ from tqdm import tqdm
 import time
 
 class SVM_2CD:
-    def __init__(self, C=1.0, n_iters=1000, tol=1e-6, solve_method="constrained"):
-        """
-        solve_method: 
-            - "naive": soluzione libera con proiezione semplice (può divergere)
-            - "constrained": soluzione vincolata robusta (consigliato)
-        """
+    def __init__(self, C=1.0, n_iters=1000, tol=1e-6):
         self.C = C
         self.n_iters = n_iters
         self.tol = tol
-        self.solve_method = solve_method
 
         self.alpha = None
         self.w = None
@@ -21,119 +15,53 @@ class SVM_2CD:
         self.fobj_history_cd = []
 
     def _solve_2d_subproblem(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
-    """
-    Risolve il sottoproblema 2D seguendo Algorithm II di Chiu et al. (2021).
-    Usa il check di ottimalità (Teoremi II.1, II.2, II.3) invece di 
-    confrontare valori obiettivo sui bordi.
-    
-    Per L2-SVM: upper bound = inf, quindi box = [0, inf) x [0, inf)
-    """
-    delta = Qii * Qjj - Qij ** 2
-
-    # Caso degenere: Hessiana semidefinita → fallback a due update 1D
-    if delta <= 1e-10:
-        di, dj = 0.0, 0.0
-        if not (ai == 0 and Gi >= 0):
-            di = max(0.0, ai - Gi / Qii) - ai
-        if not (aj == 0 and Gj >= 0):
-            dj = max(0.0, aj - Gj / Qjj) - aj
-        return di, dj
-
-    # Step 1: soluzione libera (senza vincoli)
-    ai_free = ai + (-Qjj * Gi + Qij * Gj) / delta
-    aj_free = aj + (-Qii * Gj + Qij * Gi) / delta
-
-    # Step 2: se la soluzione libera è già nel box, abbiamo finito
-    if ai_free >= 0 and aj_free >= 0:
-        return ai_free - ai, aj_free - aj
-
-    # Step 3: proiezione sul box [0, inf) x [0, inf)
-    ai_proj = max(0.0, ai_free)
-    aj_proj = max(0.0, aj_free)
-
-    # Step 4: check condizione di ottimalità su ai_proj (Teorema II.1 + II.2)
-    # Se ai_proj è sul bound inferiore (= 0), controlla il gradiente
-    use_j = True
-    if ai_proj <= 0:
-        grad_check = Qii * (ai_proj - ai) + Qij * (aj_proj - aj) + Gi
-        if grad_check >= 0:
-            # Ottimalità su ai soddisfatta → fissa ai, ottimizza aj in 1D
-            use_j = False
-
-    if not use_j:
-        # Fissa ai_bar = ai_proj = 0, ottimizza aj in 1D
-        ai_bar = ai_proj
-        aj_bar = max(0.0, aj - (Qij * (ai_bar - ai) + Gj) / Qjj)
-    else:
-        # Per Teorema II.3: ottimalità su aj soddisfatta
-        # Fissa aj_bar = aj_proj, ottimizza ai in 1D
-        aj_bar = aj_proj
-        ai_bar = max(0.0, ai - (Qij * (aj_bar - aj) + Gi) / Qii)
-
-    return ai_bar - ai, aj_bar - aj
-
-    def _solve_2d_subproblem_constrained(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
         """
-        Solve the 2D quadratic subproblem in delta-space with lower bounds:
-            di >= -ai, dj >= -aj.
-        We evaluate feasible KKT candidates (free point, two edges, corner)
-        and pick the one with the lowest local objective.
+        Solves the 2D subproblem for the pair of coordinates (i, j) in Two-CD.
+        For L2-SVM: upper bound = inf, so box = [0, inf) x [0, inf)
         """
-
-        def local_obj(di, dj):
-            return (
-                Gi * di
-                + Gj * dj
-                + 0.5 * (Qii * di * di + 2.0 * Qij * di * dj + Qjj * dj * dj)
-            )
-
-        # Start from "no move" candidate to avoid accidental ascent.
-        best_di, best_dj = 0.0, 0.0
-        best_obj = 0.0
-
         delta = Qii * Qjj - Qij ** 2
 
-        # Candidate 1: unconstrained minimizer (if numerically stable and feasible)
-        if delta > 1e-12:
-            di_free = (-Qjj * Gi + Qij * Gj) / delta
-            dj_free = (-Qii * Gj + Qij * Gi) / delta
-            if di_free >= -ai and dj_free >= -aj:
-                obj_free = local_obj(di_free, dj_free)
-                if obj_free < best_obj:
-                    best_di, best_dj = di_free, dj_free
-                    best_obj = obj_free
+        # Case degenerate: when delta is zero and H is not positive definite, but should't happen in L2-SVM
+        if delta <= 1e-10:
+            di, dj = 0.0, 0.0
+            if not (ai == 0 and Gi >= 0):
+                di = max(0.0, ai - Gi / Qii) - ai
+            if not (aj == 0 and Gj >= 0):
+                dj = max(0.0, aj - Gj / Qjj) - aj
+            return di, dj
 
-        # Candidate 2: edge di = -ai, optimize dj with bound dj >= -aj
-        di_edge = -ai
-        dj_star = -(Gj + Qij * di_edge) / Qjj
-        dj_edge = max(dj_star, -aj)
-        obj_edge_i = local_obj(di_edge, dj_edge)
-        if obj_edge_i < best_obj:
-            best_di, best_dj = di_edge, dj_edge
-            best_obj = obj_edge_i
+        # Step 1: free solution without box contraints
+        ai_free = ai + (-Qjj * Gi + Qij * Gj) / delta
+        aj_free = aj + (-Qii * Gj + Qij * Gi) / delta
 
-        # Candidate 3: edge dj = -aj, optimize di with bound di >= -ai
-        dj_edge = -aj
-        di_star = -(Gi + Qij * dj_edge) / Qii
-        di_edge = max(di_star, -ai)
-        obj_edge_j = local_obj(di_edge, dj_edge)
-        if obj_edge_j < best_obj:
-            best_di, best_dj = di_edge, dj_edge
-            best_obj = obj_edge_j
+        # Step 2: if free solution is feasible we can stop
+        if ai_free >= 0 and aj_free >= 0:
+            return ai_free - ai, aj_free - aj
 
-        # Candidate 4: corner di = -ai, dj = -aj
-        obj_corner = local_obj(-ai, -aj)
-        if obj_corner < best_obj:
-            best_di, best_dj = -ai, -aj
+        # Step 3: otherwise, projecting free solution onto the box
+        ai_proj = max(0.0, ai_free)
+        aj_proj = max(0.0, aj_free)
 
-        return best_di, best_dj
+        # Step 4: check opt condition on ai_proj (Th II.1 + II.2)
+        # if ai_proj is on the lower bound (= 0), check gradient sign
+        use_j = True
+        if ai_proj <= 0:
+            grad_check = Qii * (ai_proj - ai) + Qij * (aj_proj - aj) + Gi
+            if grad_check >= 0:
+                # opt reached so we can fix ai_proj and optimize aj in 1D
+                use_j = False
 
-    def _solve_2d_subproblem(self, ai, aj, Gi, Gj, Qii, Qjj, Qij):
-        """Wrapper che seleziona il metodo di risoluzione."""
-        if self.solve_method == "constrained":
-            return self._solve_2d_subproblem_constrained(ai, aj, Gi, Gj, Qii, Qjj, Qij)
-        else:  # "naive" o altro
-            return self._solve_2d_subproblem(ai, aj, Gi, Gj, Qii, Qjj, Qij)
+        if not use_j:
+            # fix and optimize aj in 1D
+            ai_bar = ai_proj
+            aj_bar = max(0.0, aj - (Qij * (ai_bar - ai) + Gj) / Qjj)
+        else:
+            # For Th II.3: opt on aj reached
+            # fix aj_bar = aj_proj optimize ai in 1D
+            aj_bar = aj_proj
+            ai_bar = max(0.0, ai - (Qij * (aj_bar - aj) + Gi) / Qii)
+
+        return ai_bar - ai, aj_bar - aj
 
     def fit(self, X, y):
         # Bias embedding (no vincolo duale)
@@ -157,29 +85,29 @@ class SVM_2CD:
 
         LOG_INTERVAL = max(1, n_samples // 10)
 
-        for epoch in tqdm(range(self.n_iters), desc="Epoche", unit="epoch"):
+        for epoch in tqdm(range(self.n_iters), desc="Epochs", unit="epoch"):
             M = -np.inf
             m = np.inf
 
             perm = np.random.permutation(n_samples)
 
-            # schema (π(1),π(2)), (π(3),π(4)), ...
+            # Following permutation scheme 2.13
             for k in range(0, n_samples - 1, 2):
                 i, j = perm[k], perm[k + 1]
                 total_cd_step += 2
 
-                # gradienti
+                # Compute Gradients
                 Gi = y[i] * np.dot(w, X[i]) - 1 + Dii * self.alpha[i]
                 Gj = y[j] * np.dot(w, X[j]) - 1 + Dii * self.alpha[j]
 
-                # projected gradients
+                # Projected Gradients
                 PGi = min(0.0, Gi) if self.alpha[i] == 0 else Gi
                 PGj = min(0.0, Gj) if self.alpha[j] == 0 else Gj
 
                 M = max(M, PGi, PGj)
                 m = min(m, PGi, PGj)
 
-                # skipping
+                # skipping if both proj are zero (opt condition reached)
                 if (self.alpha[i] == 0 and Gi >= 0) and (self.alpha[j] == 0 and Gj >= 0):
                     continue
 
@@ -187,6 +115,7 @@ class SVM_2CD:
                 Qjj = Q_diag[j]
                 Qij = y[i] * y[j] * np.dot(X[i], X[j])
 
+                # Call the 2D subproblem solver following algorithm II from appendix
                 di, dj = self._solve_2d_subproblem(
                     self.alpha[i], self.alpha[j],
                     Gi, Gj, Qii, Qjj, Qij
@@ -199,7 +128,7 @@ class SVM_2CD:
 
                 total_step += 1
 
-                # logging
+                # Logging of relative obj gap 
                 if total_step % LOG_INTERVAL == 0:
                     fobj = (
                         0.5 * np.dot(w, w)
@@ -210,7 +139,7 @@ class SVM_2CD:
                         (time.time() - start, total_step, fobj)
                     )
 
-                # Logging con asse x basato sui passi CD tentati.
+                # Logging of CD steps tried
                 if total_cd_step % LOG_INTERVAL == 0:
                     fobj = (
                         0.5 * np.dot(w, w)
@@ -224,7 +153,7 @@ class SVM_2CD:
 
             # Stopping Criterion 
             if M - m < self.tol:
-                print(f"\nConvergenza raggiunta all'epoca {epoch}")
+                print(f"\nConvergence reached at epoch {epoch}")
                 break
 
         final_obj = (

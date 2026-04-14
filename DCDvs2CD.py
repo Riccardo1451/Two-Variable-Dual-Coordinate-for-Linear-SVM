@@ -19,25 +19,23 @@ datasets = {
     #'w8a': ("w8a.txt", "w8a_t.txt"),
 }
 
-C_values = [8192, 1, 0.1]
+C_values = [8192, 1]
 TOL = 1e-1
 SEED = 42
 
-# Impostazioni per confronto piu' vicino al paper.
 USE_STANDARD_SCALING = False
 REFERENCE_ITERS = 4000
 REFERENCE_TOL = 1e-2
 
 # Scelta asse step:
-# - "cd": usa il numero di passi CD tentati (consigliato per confronto con il paper)
-# - "effective": usa solo gli update effettivi (comportamento precedente)
+# - "cd": uses the number of CD steps attempted (2-CD counts as 1 step)
+# - "effective": uses only the effective updates
 STEP_AXIS_MODE = "cd"
 
-# Cache persistente di f* per evitare ricalcolo ad ogni run.
+# Cache persistent for f* values to avoid recomputation on every run.
 FSTAR_CACHE_PATH = os.path.join(base_dir, "results", "fstar_cache.json")
 
-# Override manuale opzionale: se presente, viene usato questo valore.
-# Formato chiave: (dataset_name, C)
+# Manual override for f*, if present it will be used instead of cache
 FSTAR_OVERRIDE = {
     #("a9a", 8192): -13742.373305,
 }
@@ -75,6 +73,7 @@ def fstar_key(dataset_name, C):
 
 
 def compute_reference_fstar(X_train, y_train, C):
+
     np.random.seed(SEED)
     ref_dcd = SVM_DCD(C=C, n_iters=REFERENCE_ITERS, tol=REFERENCE_TOL)
     ref_dcd.fit(X_train, y_train)
@@ -104,25 +103,25 @@ for dataset_name, (train_file, test_file) in datasets.items():
     if X_test is not None:
         print(f"Train: {X_train.shape}, Test: {X_test.shape}")
     else:
-        print(f"Train: {X_train.shape}, Test: non disponibile")
+        print(f"Train: {X_train.shape}, Test: not found")
 
     for C in C_values:
         print(f"\nC = {C}")
 
         # =========================
-        # CALCOLO f* 
+        # Compute f* 
         # =========================
         key = fstar_key(dataset_name, C)
         override_key = (dataset_name, C)
         if override_key in FSTAR_OVERRIDE:
             f_star = float(FSTAR_OVERRIDE[override_key])
-            print("Uso f* da override manuale.")
+            print("Use f* from manual override.")
             fstar_cache[key] = f_star
         elif key in fstar_cache:
             f_star = float(fstar_cache[key])
-            print("Uso f* da cache.")
+            print("Use f* from cache.")
         else:
-            print("Calcolo f* di riferimento (robusto)...")
+            print("Compute f* using reference DCD and 2-CD runs...")
             f_star = compute_reference_fstar(X_train, y_train, C)
             fstar_cache[key] = f_star
             save_fstar_cache(FSTAR_CACHE_PATH, fstar_cache)
@@ -132,7 +131,7 @@ for dataset_name, (train_file, test_file) in datasets.items():
         # =========================
         # DCD
         # =========================
-        print("Addestramento SVM DCD...")
+        print("Training SVM DCD...")
         np.random.seed(SEED)
         dcd = SVM_DCD(C=C, n_iters=3000, tol=TOL)
         dcd.fit(X_train, y_train)
@@ -142,14 +141,14 @@ for dataset_name, (train_file, test_file) in datasets.items():
             acc_dcd = accuracy_score(y_test, y_pred_dcd)
             print(f"DCD Accuracy: {acc_dcd * 100:.2f}%")
         else:
-            print("DCD Accuracy: test set non disponibile")
+            print("DCD Accuracy: test set not found")
 
         # =========================
         # 2-CD
         # =========================
-        print("Addestramento SVM Two-CD...")
+        print("Training SVM Two-CD...")
         np.random.seed(SEED)
-        two_cd = SVM_2CD(C=C, n_iters=2000, tol=TOL, solve_method="constrained")
+        two_cd = SVM_2CD(C=C, n_iters=2000, tol=TOL)
         two_cd.fit(X_train, y_train)
 
         if X_test is not None:
@@ -157,12 +156,12 @@ for dataset_name, (train_file, test_file) in datasets.items():
             acc_2cd = accuracy_score(y_test, y_pred_2cd)
             print(f"2-CD Accuracy: {acc_2cd * 100:.2f}%")
         else:
-            print("2-CD Accuracy: test set non disponibile")
+            print("2-CD Accuracy: test set not found")
 
         # =========================
-        # sklearn (solo controllo)
+        # sklearn
         # =========================
-        print("Addestramento SVM sklearn...")
+        print("Training SVM sklearn...")
         svm_sk = LinearSVC(C=C, max_iter=5000, tol=TOL, dual=True, loss="squared_hinge", fit_intercept=False)
         svm_sk.fit(X_train, y_train)
 
@@ -171,10 +170,10 @@ for dataset_name, (train_file, test_file) in datasets.items():
             acc_sk = accuracy_score(y_test, y_pred_sk)
             print(f"sklearn Accuracy: {acc_sk * 100:.2f}%")
         else:
-            print("sklearn Accuracy: test set non disponibile")
+            print("sklearn Accuracy: test set not found")
 
         # =========================
-        # ESTRAZIONE DATI
+        # Data collection
         # =========================
         hist_dcd = select_history(dcd)
         hist_2cd = select_history(two_cd)
@@ -182,7 +181,6 @@ for dataset_name, (train_file, test_file) in datasets.items():
         times_2cd, steps_2cd, obj_2cd = zip(*hist_2cd)
 
         if STEP_AXIS_MODE == "effective":
-            # In modalita' effective, un passo 2-CD aggiorna 2 variabili.
             steps_2cd = [s * 2 for s in steps_2cd]
 
         # =========================
@@ -214,7 +212,7 @@ for dataset_name, (train_file, test_file) in datasets.items():
         ax1.legend(title="Method")
         ax1.grid(True, which="both", alpha=0.3)
 
-        # ---- vs tempo ----
+        # ---- vs time ----
         ax2.semilogy(times_dcd, rel_dcd, label="OneVariableDCD", linestyle="--")
         ax2.semilogy(times_2cd, rel_2cd, label="TwoVariable-DCD", linestyle="-")
 
@@ -230,4 +228,4 @@ for dataset_name, (train_file, test_file) in datasets.items():
         plt.savefig(plot_path, dpi=150)
         plt.close()
 
-        print(f"Grafico salvato in: {plot_path}")
+        print(f"Graph saved in: {plot_path}")
