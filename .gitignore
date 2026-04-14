@@ -1,6 +1,6 @@
 /dataset
 /.vscode
-/results
+/results/fstar_cache.json
 /twocddualexp
 
 # Byte-compiled / optimized / DLL files
